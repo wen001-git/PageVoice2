@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import type { ReadingRate } from '../types'
 
 export type SpeechStatus = 'idle' | 'starting' | 'speaking' | 'paused'
+type PlaybackMode = 'continuous' | 'single' | 'repeat'
 
 const SPEECH_START_TIMEOUT_MS = 2_500
 
@@ -74,7 +75,7 @@ export function useSpeechReader({ sentences, currentIndex, rate, voiceURI, repea
     setStatus('idle')
   }, [clearStartTimer])
 
-  const speakAt = useCallback((target: number) => {
+  const speakAt = useCallback((target: number, mode: PlaybackMode = 'continuous') => {
     const options = optionsRef.current
     if (!options.sentences[target]) {
       stop()
@@ -117,9 +118,9 @@ export function useSpeechReader({ sentences, currentIndex, rate, voiceURI, repea
       clearStartTimer()
       const latest = optionsRef.current
       if (latest.repeat) {
-        speakAt(target)
-      } else if (target < latest.sentences.length - 1) {
-        speakAt(target + 1)
+        speakAt(target, 'repeat')
+      } else if (mode === 'continuous' && target < latest.sentences.length - 1) {
+        speakAt(target + 1, 'continuous')
       } else {
         setStatus('idle')
       }
@@ -139,15 +140,16 @@ export function useSpeechReader({ sentences, currentIndex, rate, voiceURI, repea
       window.speechSynthesis.resume()
       setStatus('speaking')
     } else {
-      speakAt(currentIndex)
+      speakAt(currentIndex, 'continuous')
     }
   }, [currentIndex, sentences.length, speakAt, status])
 
-  const restartCurrent = useCallback(() => speakAt(currentIndex), [currentIndex, speakAt])
-  const previous = useCallback(() => speakAt(Math.max(0, currentIndex - 1)), [currentIndex, speakAt])
+  const speakSentence = useCallback((target: number) => speakAt(target, 'single'), [speakAt])
+  const restartCurrent = useCallback(() => speakSentence(currentIndex), [currentIndex, speakSentence])
+  const previous = useCallback(() => speakSentence(Math.max(0, currentIndex - 1)), [currentIndex, speakSentence])
   const next = useCallback(
-    () => speakAt(Math.min(sentences.length - 1, currentIndex + 1)),
-    [currentIndex, sentences.length, speakAt],
+    () => speakSentence(Math.min(sentences.length - 1, currentIndex + 1)),
+    [currentIndex, sentences.length, speakSentence],
   )
 
   const speakWord = useCallback((word: string) => {
@@ -201,5 +203,5 @@ export function useSpeechReader({ sentences, currentIndex, rate, voiceURI, repea
 
   useEffect(() => stop, [stop])
 
-  return { status, voices, error, clearError: () => setError(''), speakAt, toggle, stop, previous, next, restartCurrent, speakWord }
+  return { status, voices, error, clearError: () => setError(''), speakAt, speakSentence, toggle, stop, previous, next, restartCurrent, speakWord }
 }

@@ -80,6 +80,25 @@ describe('useSpeechReader', () => {
     expect(spoken[0].rate).toBe(0.75)
   })
 
+  it('reads a tapped sentence once without advancing', () => {
+    const onIndexChange = vi.fn()
+    const { result } = renderHook(() => useSpeechReader({
+      sentences: ['First sentence.', 'Tapped sentence.', 'Third sentence.'],
+      currentIndex: 0,
+      rate: 1,
+      voiceURI: '',
+      repeat: false,
+      onIndexChange,
+    }))
+
+    act(() => result.current.speakSentence(1))
+    expect(spoken[0].text).toBe('Tapped sentence.')
+    act(() => spoken[0].onend?.())
+    expect(onIndexChange).toHaveBeenLastCalledWith(1)
+    expect(result.current.status).toBe('idle')
+    expect(spoken).toHaveLength(1)
+  })
+
   it('shows a starting state until the speech engine actually starts', () => {
     autoStart = false
     const { result } = renderHook(() => useSpeechReader({

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   BookOpen,
   Camera,
@@ -32,7 +32,7 @@ import { clearCloudOcrPin, CloudOcrError, getCloudOcrPin, recognizeWithTencent, 
 import { lookupWord, prepareOfflineResources } from './lib/dictionary'
 import { prepareCloudImage, prepareImage, type PreparedImage } from './lib/image'
 import { cancelRecognition, recognizeEnglish, type OcrProgress } from './lib/ocr'
-import { splitSentences, tokenizeSentence } from './lib/sentences'
+import { isStandaloneHeading, splitSentences, tokenizeSentence } from './lib/sentences'
 import type { AppView, DictionaryEntry, ReadingProject, ReadingRate } from './types'
 
 const OCR_STATUS: Record<string, string> = {
@@ -51,6 +51,20 @@ const OCR_HINT: Record<string, string> = {
   'initializing api': '正在设备中准备英文识别。',
   'reusing initialized worker': '已复用本次打开期间加载的模型。',
   'recognizing text': '所有文字识别都在这台设备中完成。',
+}
+
+function refreshSentenceBoundaries(project: ReadingProject): ReadingProject {
+  if (!project.text.trim()) return project
+  const sentences = splitSentences(project.text)
+  if (sentences.length === project.sentences.length && sentences.every((sentence, index) => sentence === project.sentences[index])) return project
+
+  const previousSentence = project.sentences[project.currentSentence]?.trim()
+  const matchingIndex = previousSentence ? sentences.findIndex((sentence) => sentence.includes(previousSentence)) : -1
+  return {
+    ...project,
+    sentences,
+    currentSentence: matchingIndex >= 0 ? matchingIndex : Math.min(project.currentSentence, Math.max(0, sentences.length - 1)),
+  }
 }
 
 export function App() {
@@ -96,9 +110,13 @@ export function App() {
   }, [])
 
   const openProject = useCallback((selected: ReadingProject, target: AppView = selected.text ? 'reader' : 'capture') => {
-    setProject(selected)
+    const refreshed = refreshSentenceBoundaries(selected)
+    setProject(refreshed)
+    if (refreshed !== selected) {
+      void saveProject(refreshed).then(refreshProjects)
+    }
     navigate(target)
-  }, [navigate])
+  }, [navigate, refreshProjects])
 
   const updateProject = useCallback(async (next: ReadingProject) => {
     const saved = await saveProject(next)
@@ -470,22 +488,31 @@ function Reader({ project, onEdit, onChange }: { project: ReadingProject; onEdit
     <main className="reader-layout">
       <section className="reading-pane">
         <div className="reader-header">
-          <div><span className="eyebrow">NOW READING</span><h1>{project.title}</h1><p>第 {project.currentSentence + 1} / {project.sentences.length} 句</p></div>
+          <div><span className="eyebrow">NOW READING</span><h1>{project.title}</h1><p>第 {project.currentSentence + 1} / {project.sentences.length} 句 · 点句单读</p></div>
           <button className="secondary-button" onClick={onEdit}>校对文字</button>
         </div>
         <article className="reading-text" lang="en">
           {project.sentences.map((sentence, index) => (
-            <div
-              className={`sentence ${index === project.currentSentence ? 'is-current' : ''}`}
-              data-sentence={index}
-              key={`${index}-${sentence.slice(0, 18)}`}
-              onClick={() => speech.speakAt(index)}
-            >
-              <button className="sentence-start" onClick={(event) => { event.stopPropagation(); speech.speakAt(index) }} aria-label={`从第 ${index + 1} 句开始朗读`}><Play size={13} fill="currentColor" /></button>
-              {tokenizeSentence(sentence).map((token, tokenIndex) => token.isWord ? (
-                <button className="word" key={tokenIndex} onClick={(event) => { event.stopPropagation(); void chooseWord(token.value) }}>{token.value}</button>
-              ) : <span key={tokenIndex}>{token.value}</span>)}
-            </div>
+            <Fragment key={`${index}-${sentence.slice(0, 18)}`}>
+              <span
+                className={`sentence ${isStandaloneHeading(sentence) ? 'is-heading' : ''} ${index === project.currentSentence ? 'is-current' : ''}`}
+                data-sentence={index}
+                tabIndex={0}
+                role="button"
+                aria-label={`朗读第 ${index + 1} 句一次`}
+                onClick={() => speech.speakSentence(index)}
+                onKeyDown={(event) => {
+                  if (event.target !== event.currentTarget || (event.key !== 'Enter' && event.key !== ' ')) return
+                  event.preventDefault()
+                  speech.speakSentence(index)
+                }}
+              >
+                {tokenizeSentence(sentence).map((token, tokenIndex) => token.isWord ? (
+                  <button className="word" key={tokenIndex} onClick={(event) => { event.stopPropagation(); void chooseWord(token.value) }}>{token.value}</button>
+                ) : <span key={tokenIndex}>{token.value}</span>)}
+              </span>
+              {index < project.sentences.length - 1 ? ' ' : null}
+            </Fragment>
           ))}
         </article>
       </section>
@@ -516,12 +543,17 @@ function Reader({ project, onEdit, onChange }: { project: ReadingProject; onEdit
         <button
           className="play-button"
           onClick={speech.toggle}
-          aria-label={speech.status === 'starting' ? '取消语音启动' : speech.status === 'speaking' ? '暂停' : '播放'}
+          aria-label={speech.status === 'starting' ? '取消语音启动' : speech.status === 'speaking' ? '暂停连续朗读' : '从当前句连续朗读'}
         >
           {speech.status === 'starting' ? <RefreshCw className="spin" size={25} /> : speech.status === 'speaking' ? <Pause size={27} /> : <Play size={27} fill="currentColor" />}
         </button>
         <button className="player-icon" onClick={speech.next} aria-label="下一句"><ChevronRight size={25} /></button>
-        <button className={`repeat-button ${project.repeatSentence ? 'is-active' : ''}`} onClick={() => void onChange({ ...project, repeatSentence: !project.repeatSentence })}><RefreshCw size={18} />单句</button>
+        <button
+          className={`repeat-button ${project.repeatSentence ? 'is-active' : ''}`}
+          aria-pressed={project.repeatSentence}
+          title="循环朗读当前句"
+          onClick={() => void onChange({ ...project, repeatSentence: !project.repeatSentence })}
+        ><RefreshCw size={18} />循环本句</button>
         <div className="rate-switch" aria-label="语速">
           {[0.75, 1, 1.2].map((rate) => <button key={rate} className={project.rate === rate ? 'is-active' : ''} onClick={() => void onChange({ ...project, rate: rate as ReadingRate })}>{rate}×</button>)}
         </div>
