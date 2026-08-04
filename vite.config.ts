@@ -12,7 +12,7 @@ export default defineConfig(() => ({
       manifest: {
         name: 'PageVoice 英文拍照读书',
         short_name: 'PageVoice',
-        description: '在浏览器本地识别英文书页，逐句朗读并离线查词。',
+        description: '本地或高精度识别英文书页，逐句朗读并离线查词。',
         theme_color: '#356859',
         background_color: '#F4F1E8',
         display: 'standalone',
@@ -30,6 +30,11 @@ export default defineConfig(() => ({
         globIgnores: ['dictionary/**', 'tessdata/**', 'tesseract-core/**'],
         maximumFileSizeToCacheInBytes: 18 * 1024 * 1024,
         runtimeCaching: [
+          {
+            urlPattern: ({ url }) => url.pathname.endsWith('/api/ocr'),
+            handler: 'NetworkOnly',
+            method: 'POST'
+          },
           {
             urlPattern: ({ url }) => url.pathname.includes('/tessdata/') || url.pathname.includes('/tesseract-core/'),
             handler: 'CacheFirst',

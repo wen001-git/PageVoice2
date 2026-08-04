@@ -5,6 +5,8 @@ export type PreparedImage = {
   height: number
 }
 
+const MAX_CLOUD_BASE64_LENGTH = 4_300_000
+
 const loadImage = (file: File) =>
   new Promise<HTMLImageElement>((resolve, reject) => {
     const image = new Image()
@@ -24,6 +26,44 @@ function canvasToBlob(canvas: HTMLCanvasElement, quality = 0.78): Promise<Blob> 
   return new Promise((resolve, reject) => {
     canvas.toBlob((blob) => (blob ? resolve(blob) : reject(new Error('图片处理失败。'))), 'image/jpeg', quality)
   })
+}
+
+const loadDataUrl = (dataUrl: string) =>
+  new Promise<HTMLImageElement>((resolve, reject) => {
+    const image = new Image()
+    image.onload = () => resolve(image)
+    image.onerror = () => reject(new Error('无法准备高精度识别图片，请换一张重试。'))
+    image.src = dataUrl
+  })
+
+export async function prepareCloudImage(dataUrl: string): Promise<string> {
+  const image = await loadDataUrl(dataUrl)
+  let width = image.naturalWidth
+  let height = image.naturalHeight
+  let quality = 0.86
+
+  for (let attempt = 0; attempt < 8; attempt += 1) {
+    const canvas = document.createElement('canvas')
+    canvas.width = Math.max(1, Math.round(width))
+    canvas.height = Math.max(1, Math.round(height))
+    const context = canvas.getContext('2d')
+    if (!context) throw new Error('浏览器无法压缩高精度识别图片。')
+    context.drawImage(image, 0, 0, canvas.width, canvas.height)
+    const encoded = canvas.toDataURL('image/jpeg', quality).split(',', 2)[1] ?? ''
+    if (encoded.length <= MAX_CLOUD_BASE64_LENGTH) return encoded
+
+    if (quality > 0.58) quality -= 0.1
+    else {
+      const longSide = Math.max(width, height)
+      if (longSide <= 1000) break
+      const scale = Math.max(1000 / longSide, 0.82)
+      width *= scale
+      height *= scale
+      quality = 0.72
+    }
+  }
+
+  throw new Error('图片仍然过大，请靠近书页重新拍摄后再试。')
 }
 
 export async function prepareImage(file: File, rotation = 0, enhanced = false): Promise<PreparedImage> {

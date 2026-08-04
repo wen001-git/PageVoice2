@@ -6,10 +6,12 @@ import {
   ChevronRight,
   CircleStop,
   CloudOff,
+  CloudUpload,
   Download,
   FileImage,
   Gauge,
   Home,
+  KeyRound,
   MoreHorizontal,
   Pause,
   Play,
@@ -26,8 +28,9 @@ import { useRegisterSW } from 'virtual:pwa-register/react'
 import { NoticeStack, type NoticeMessage, type NoticeTone } from './components/NoticeStack'
 import { useSpeechReader } from './hooks/useSpeechReader'
 import { createProject, listProjects, removeProject, saveProject } from './lib/db'
+import { clearCloudOcrPin, CloudOcrError, getCloudOcrPin, recognizeWithTencent, saveCloudOcrPin } from './lib/cloudOcr'
 import { lookupWord, prepareOfflineResources } from './lib/dictionary'
-import { prepareImage, type PreparedImage } from './lib/image'
+import { prepareCloudImage, prepareImage, type PreparedImage } from './lib/image'
 import { cancelRecognition, recognizeEnglish, type OcrProgress } from './lib/ocr'
 import { splitSentences, tokenizeSentence } from './lib/sentences'
 import type { AppView, DictionaryEntry, ReadingProject, ReadingRate } from './types'
@@ -219,7 +222,7 @@ function Library({ projects, onCreate, onOpen, onRename, onDelete }: {
         <div>
           <span className="eyebrow">PRIVATE · LOCAL · CALM</span>
           <h1>把英文书页，变成可以听的阅读伙伴。</h1>
-          <p>照片和文字只在这台设备中处理。拍一页、校对一下，然后跟着高亮逐句阅读。</p>
+          <p>默认在这台设备中处理，也可由你选择联网高精度识别。拍一页、校对一下，然后跟着高亮逐句阅读。</p>
         </div>
         <button className="primary-button primary-button--large" onClick={onCreate}><Camera size={21} />拍一页开始</button>
       </section>
@@ -271,15 +274,19 @@ function ProjectCard({ project, onOpen, onRename, onDelete }: { project: Reading
   )
 }
 
-function Capture({ project, onBack, onPaste, onRecognized }: { project: ReadingProject; onBack: () => void; onPaste: () => void; onRecognized: (text: string, thumbnail: Blob) => Promise<void> }) {
+export function Capture({ project, onBack, onPaste, onRecognized }: { project: ReadingProject; onBack: () => void; onPaste: () => void; onRecognized: (text: string, thumbnail: Blob) => Promise<void> }) {
   const [file, setFile] = useState<File | null>(null)
   const [rotation, setRotation] = useState(0)
   const [enhanced, setEnhanced] = useState(false)
   const [image, setImage] = useState<PreparedImage | null>(null)
   const [progress, setProgress] = useState<OcrProgress | null>(null)
-  const [scanning, setScanning] = useState(false)
+  const [scanMode, setScanMode] = useState<'local' | 'cloud' | null>(null)
   const [error, setError] = useState('')
+  const [pinOpen, setPinOpen] = useState(false)
+  const [pinDraft, setPinDraft] = useState('')
   const cancelledRef = useRef(false)
+  const cloudAbortRef = useRef<AbortController | null>(null)
+  const scanning = scanMode !== null
 
   const process = useCallback(async (source: File, nextRotation: number, nextEnhanced: boolean) => {
     setError('')
@@ -303,17 +310,58 @@ function Capture({ project, onBack, onPaste, onRecognized }: { project: ReadingP
     setEnhanced(next); void process(file, rotation, next)
   }
 
-  const recognize = async () => {
+  const recognizeLocal = async () => {
     if (!image) return
     cancelledRef.current = false
-    setScanning(true); setError(''); setProgress({ status: 'loading tesseract core', progress: 0 })
+    setScanMode('local'); setError(''); setProgress({ status: 'loading tesseract core', progress: 0 })
     try {
       const text = await recognizeEnglish(image.dataUrl, setProgress)
       if (!text.trim()) throw new Error('没有识别到英文文字。请检查清晰度、方向和光线后重试。')
       await onRecognized(text, image.thumbnail)
     } catch (reason) {
       if (!cancelledRef.current) setError(reason instanceof Error ? reason.message : 'OCR 识别失败，请重试。')
-    } finally { setScanning(false) }
+    } finally { setScanMode(null) }
+  }
+
+  const recognizeCloud = async (pin: string) => {
+    if (!image) return
+    if (!navigator.onLine) return setError('当前设备处于离线状态，请联网后使用高精度识别，或改用本地离线识别。')
+    cancelledRef.current = false
+    const controller = new AbortController()
+    cloudAbortRef.current = controller
+    setScanMode('cloud'); setError(''); setProgress(null)
+    try {
+      const imageBase64 = await prepareCloudImage(image.dataUrl)
+      if (controller.signal.aborted) throw new DOMException('OCR cancelled', 'AbortError')
+      const result = await recognizeWithTencent(imageBase64, pin, controller.signal)
+      const text = result.text?.trim() ?? ''
+      if (!text) throw new CloudOcrError('腾讯云没有识别到英文文字，请检查清晰度后重试或改用本地识别。', 'NO_TEXT')
+      saveCloudOcrPin(pin)
+      await onRecognized(text, image.thumbnail)
+    } catch (reason) {
+      if (reason instanceof CloudOcrError && reason.code === 'INVALID_PIN') {
+        clearCloudOcrPin(); setPinDraft(''); setPinOpen(true)
+      }
+      if (!cancelledRef.current && !(reason instanceof DOMException && reason.name === 'AbortError')) {
+        setError(reason instanceof Error ? reason.message : '高精度识别失败，请改用本地识别。')
+      }
+    } finally {
+      if (cloudAbortRef.current === controller) cloudAbortRef.current = null
+      setScanMode(null)
+    }
+  }
+
+  const requestCloudRecognition = () => {
+    const savedPin = getCloudOcrPin()
+    if (savedPin) void recognizeCloud(savedPin)
+    else { setPinDraft(''); setPinOpen(true) }
+  }
+
+  const cancelScan = () => {
+    cancelledRef.current = true
+    if (scanMode === 'cloud') cloudAbortRef.current?.abort()
+    else void cancelRecognition()
+    setScanMode(null)
   }
 
   return (
@@ -337,15 +385,40 @@ function Capture({ project, onBack, onPaste, onRecognized }: { project: ReadingP
           </div>
           {scanning ? (
             <div className="ocr-progress" role="status">
-              <div className="progress-ring"><span>{Math.round((progress?.progress ?? 0) * 100)}%</span></div>
-              <div><strong>{OCR_STATUS[progress?.status ?? ''] ?? '正在本地识别'}</strong><p>{OCR_HINT[progress?.status ?? ''] ?? '所有处理都在这台设备中完成。'}</p></div>
-              <button className="secondary-button" onClick={() => { cancelledRef.current = true; void cancelRecognition(); setScanning(false) }}><CircleStop size={18} />取消</button>
+              <div className="progress-ring"><span>{scanMode === 'cloud' ? <CloudUpload size={22} /> : `${Math.round((progress?.progress ?? 0) * 100)}%`}</span></div>
+              {scanMode === 'cloud'
+                ? <div><strong>正在高精度识别</strong><p>压缩书页后发送给腾讯云，本应用不会保存原图。</p></div>
+                : <div><strong>{OCR_STATUS[progress?.status ?? ''] ?? '正在本地识别'}</strong><p>{OCR_HINT[progress?.status ?? ''] ?? '所有处理都在这台设备中完成。'}</p></div>}
+              <button className="secondary-button" onClick={cancelScan}><CircleStop size={18} />取消</button>
             </div>
-          ) : <button className="primary-button primary-button--wide" onClick={() => void recognize()}><Sparkles size={19} />开始本地识别</button>}
+          ) : (
+            <div className="ocr-choices">
+              <button className="primary-button" onClick={requestCloudRecognition}><CloudUpload size={19} />高精度识别（需联网）</button>
+              <button className="secondary-button" onClick={() => void recognizeLocal()}><Sparkles size={19} />本地离线识别</button>
+            </div>
+          )}
         </div>
       )}
       {error && <div className="error-message" role="alert">{error}</div>}
-      <div className="privacy-note"><CloudOff size={18} /><div><strong>照片不会上传</strong><p>识别完成后只保存小尺寸缩略图，原始照片不会存进项目。</p></div></div>
+      <div className="privacy-note"><CloudOff size={18} /><div><strong>由你决定是否上传</strong><p>本地识别不会上传照片；只有点击“高精度识别”后，当前压缩图片才会发送给腾讯云完成一次识别。PageVoice2 不保存原图。</p></div></div>
+      {pinOpen && (
+        <div className="dialog-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) setPinOpen(false) }}>
+          <form className="pin-dialog" role="dialog" aria-modal="true" aria-labelledby="pin-dialog-title" onSubmit={(event) => {
+            event.preventDefault()
+            const pin = pinDraft.trim()
+            if (!pin) return
+            setPinOpen(false)
+            void recognizeCloud(pin)
+          }}>
+            <button type="button" className="dialog-close" onClick={() => setPinOpen(false)} aria-label="关闭"><X size={18} /></button>
+            <span className="dialog-icon"><KeyRound size={24} /></span>
+            <h2 id="pin-dialog-title">使用家庭高精度识别</h2>
+            <p>当前压缩书页将发送给腾讯云 OCR 处理。服务端不保存原图、PIN 或识别请求；验证成功后 PIN 仅保存在这台设备。</p>
+            <label>家庭 PIN<input autoFocus type="password" inputMode="text" autoComplete="off" minLength={6} maxLength={64} pattern="[A-Za-z0-9]+" value={pinDraft} onChange={(event) => setPinDraft(event.target.value)} placeholder="6–12 位字母和数字" /></label>
+            <button className="primary-button" type="submit" disabled={!pinDraft.trim()}><CloudUpload size={18} />同意并开始识别</button>
+          </form>
+        </div>
+      )}
     </main>
   )
 }
@@ -470,6 +543,7 @@ function SettingsView({ persistent, storage, onBack, onPersistence, onNotice }: 
   onNotice: (message: string, tone?: NoticeTone) => void
 }) {
   const [offlineProgress, setOfflineProgress] = useState<number | null>(null)
+  const [cloudPinSaved, setCloudPinSaved] = useState(() => Boolean(getCloudOcrPin()))
   const storageLabel = useMemo(() => storage ? `${(storage.usage / 1024 / 1024).toFixed(1)} MB / ${(storage.quota / 1024 / 1024 / 1024).toFixed(1)} GB` : '浏览器未提供容量信息', [storage])
   return (
     <main className="app-content settings-view">
@@ -491,9 +565,14 @@ function SettingsView({ persistent, storage, onBack, onPersistence, onNotice }: 
         <div><h2>本地存储</h2><p>{storageLabel}。项目保存在浏览器 IndexedDB 中，系统存储压力较大时仍可能被清理。</p><span className={`status-pill ${persistent ? 'is-good' : ''}`}>{persistent ? '已获得持久存储' : '普通本地存储'}</span></div>
         {!persistent && <button className="secondary-button" onClick={onPersistence}>请求保护</button>}
       </section>
+      <section className="settings-card">
+        <div className="settings-icon"><KeyRound size={24} /></div>
+        <div><h2>家庭高精度识别</h2><p>家庭 PIN 只保存在这台设备，用于防止他人消耗腾讯云 OCR 额度。</p><span className={`status-pill ${cloudPinSaved ? 'is-good' : ''}`}>{cloudPinSaved ? '已保存家庭 PIN' : '尚未验证家庭 PIN'}</span></div>
+        {cloudPinSaved && <button className="secondary-button" onClick={() => { clearCloudOcrPin(); setCloudPinSaved(false); onNotice('这台设备保存的家庭 PIN 已清除。', 'success') }}>清除 PIN</button>}
+      </section>
       <section className="settings-card settings-card--about">
         <div className="settings-icon"><CloudOff size={24} /></div>
-        <div><h2>隐私说明</h2><p>PageVoice 不上传书页照片和阅读正文，也没有账号、云同步或行为追踪。清除浏览器网站数据会同时删除本地项目。</p></div>
+        <div><h2>隐私说明</h2><p>PageVoice 默认在本机处理；只有你明确选择高精度识别时，当前压缩图片才会发送给腾讯云 OCR。应用不保存原图，也没有账号、云同步或行为追踪。清除浏览器网站数据会同时删除本地项目和家庭 PIN。</p></div>
       </section>
       <footer className="credits">界面设计基于 Esther Design System · © ESTHER不二 · CC BY-NC-SA 4.0</footer>
     </main>

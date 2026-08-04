@@ -1,0 +1,8 @@
+{
+  "cloudFunctions": {
+    "overseasRegions": ["ap-hongkong"],
+    "nodejs": {
+      "maxDuration": 60
+    }
+  }
+}

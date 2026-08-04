@@ -122,6 +122,8 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 .image-preview { max-height: min(57vh, 680px); overflow: auto; display: grid; place-items: center; border-radius: 16px; background: #ded9cc; }
 .image-preview img { display: block; max-width: 100%; max-height: 62vh; object-fit: contain; }
 .image-actions { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 14px; }
+.ocr-choices { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr); gap: 10px; margin-top: 20px; }
+.ocr-choices > button { min-height: 54px; }
 .ocr-progress { display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 18px; margin-top: 20px; padding: 16px; border-radius: 16px; background: rgba(53,104,89,.07); }
 .progress-ring { width: 62px; height: 62px; display: grid; place-items: center; border: 6px solid rgba(53,104,89,.12); border-top-color: var(--blue); border-radius: 50%; }
 .progress-ring span { font-size: .72rem; font-weight: 800; }
@@ -131,6 +133,17 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 .privacy-note { display: flex; gap: 12px; margin: 28px 4px 0; padding: 18px; border: 2px dashed rgba(53,104,89,.18); border-radius: 14px; color: var(--blue); }
 .privacy-note strong { font-family: "Noto Serif SC", Songti SC, serif; }
 .privacy-note p { margin: 3px 0 0; color: var(--ink-light); font-size: .78rem; line-height: 1.6; }
+
+.dialog-backdrop { position: fixed; z-index: 180; inset: 0; display: grid; place-items: center; padding: 18px; background: rgba(38,51,43,.46); backdrop-filter: blur(5px); -webkit-backdrop-filter: blur(5px); }
+.pin-dialog { width: min(100%, 440px); position: relative; padding: 30px; border-radius: 24px 24px 24px 8px; background: var(--paper); box-shadow: 0 24px 70px rgba(38,51,43,.28); }
+.dialog-close { position: absolute; right: 14px; top: 14px; width: 38px; height: 38px; display: grid; place-items: center; border-radius: 50%; background: transparent; cursor: pointer; }
+.dialog-close:hover { background: rgba(53,104,89,.09); }
+.dialog-icon { width: 48px; height: 48px; display: grid; place-items: center; border-radius: 14px; background: rgba(240,216,120,.4); color: var(--blue); }
+.pin-dialog h2 { margin: 18px 0 8px; font-family: "Noto Serif SC", Songti SC, serif; font-size: 1.25rem; }
+.pin-dialog p { margin: 0 0 20px; color: var(--ink-light); font-size: .82rem; line-height: 1.7; }
+.pin-dialog label { display: grid; gap: 7px; color: var(--ink-light); font-size: .75rem; font-weight: 700; }
+.pin-dialog input { width: 100%; height: 48px; padding: 0 14px; border: 1px solid var(--border); border-radius: 12px; background: #fffdf8; font-size: 1rem; }
+.pin-dialog .primary-button { width: 100%; margin-top: 18px; }
 
 .editor-card { overflow: hidden; border: 1px solid var(--border); border-radius: 20px; background: var(--paper); box-shadow: var(--shadow); }
 .editor-meta { display: flex; gap: 16px; padding: 11px 16px; border-bottom: 1px solid var(--border); color: var(--ink-faint); font-size: .72rem; }
@@ -213,6 +226,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
   .paste-option { grid-column: auto; }
   .ocr-progress { grid-template-columns: auto 1fr; }
   .ocr-progress > button { grid-column: 1 / -1; }
+  .ocr-choices { grid-template-columns: 1fr; }
   .reader-layout { padding: 24px 12px 136px; }
   .reader-header { padding: 0 6px; align-items: start; }
   .reader-header .secondary-button { padding: 8px 10px; white-space: nowrap; }
