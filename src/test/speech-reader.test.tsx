@@ -18,10 +18,12 @@ class FakeUtterance {
 
 let spoken: FakeUtterance[]
 let paused = false
+let autoStart = true
 
 beforeEach(() => {
   spoken = []
   paused = false
+  autoStart = true
   Object.defineProperty(window, 'SpeechSynthesisUtterance', { value: FakeUtterance, configurable: true })
   Object.defineProperty(globalThis, 'SpeechSynthesisUtterance', { value: FakeUtterance, configurable: true })
   Object.defineProperty(window, 'speechSynthesis', {
@@ -30,7 +32,7 @@ beforeEach(() => {
       get paused() { return paused },
       get speaking() { return spoken.length > 0 && !paused },
       getVoices: () => [],
-      speak: (utterance: FakeUtterance) => { spoken.push(utterance); utterance.onstart?.() },
+      speak: (utterance: FakeUtterance) => { spoken.push(utterance); if (autoStart) utterance.onstart?.() },
       cancel: () => { spoken = [] },
       pause: () => { paused = true },
       resume: () => { paused = false },
@@ -76,5 +78,41 @@ describe('useSpeechReader', () => {
     act(() => first.onend?.())
     expect(spoken[0].text).toBe('Repeat me.')
     expect(spoken[0].rate).toBe(0.75)
+  })
+
+  it('shows a starting state until the speech engine actually starts', () => {
+    autoStart = false
+    const { result } = renderHook(() => useSpeechReader({
+      sentences: ['Start after the engine is ready.'],
+      currentIndex: 0,
+      rate: 1,
+      voiceURI: '',
+      repeat: false,
+      onIndexChange: vi.fn(),
+    }))
+
+    act(() => result.current.speakAt(0))
+    expect(result.current.status).toBe('starting')
+    act(() => spoken[0].onstart?.())
+    expect(result.current.status).toBe('speaking')
+  })
+
+  it('reports a helpful error when Android speech does not start', () => {
+    vi.useFakeTimers()
+    autoStart = false
+    const { result } = renderHook(() => useSpeechReader({
+      sentences: ['This should time out.'],
+      currentIndex: 0,
+      rate: 1,
+      voiceURI: '',
+      repeat: false,
+      onIndexChange: vi.fn(),
+    }))
+
+    act(() => result.current.speakAt(0))
+    act(() => vi.advanceTimersByTime(2_500))
+    expect(result.current.status).toBe('idle')
+    expect(result.current.error).toContain('Android')
+    vi.useRealTimers()
   })
 })

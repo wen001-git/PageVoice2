@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { ReadingRate } from '../types'
 
-export type SpeechStatus = 'idle' | 'speaking' | 'paused'
+export type SpeechStatus = 'idle' | 'starting' | 'speaking' | 'paused'
+
+const SPEECH_START_TIMEOUT_MS = 2_500
 
 type Options = {
   sentences: string[]
@@ -15,7 +17,9 @@ type Options = {
 export function useSpeechReader({ sentences, currentIndex, rate, voiceURI, repeat, onIndexChange }: Options) {
   const [status, setStatus] = useState<SpeechStatus>('idle')
   const [voices, setVoices] = useState<SpeechSynthesisVoice[]>([])
+  const [error, setError] = useState('')
   const tokenRef = useRef(0)
+  const startTimerRef = useRef<number | null>(null)
   const optionsRef = useRef({ sentences, currentIndex, rate, voiceURI, repeat, onIndexChange })
 
   useEffect(() => {
@@ -34,11 +38,41 @@ export function useSpeechReader({ sentences, currentIndex, rate, voiceURI, repea
     return () => window.speechSynthesis.removeEventListener('voiceschanged', refresh)
   }, [])
 
+  const clearStartTimer = useCallback(() => {
+    if (startTimerRef.current === null) return
+    window.clearTimeout(startTimerRef.current)
+    startTimerRef.current = null
+  }, [])
+
+  const speechErrorMessage = useCallback((code?: string) => {
+    if (code === 'language-unavailable' || code === 'voice-unavailable') {
+      return '手机没有可用的英文声音。请在 Android“文字转语音输出”中安装英文语音数据。'
+    }
+    if (code === 'network' || code === 'synthesis-unavailable' || code === 'synthesis-failed') {
+      return '手机语音引擎暂时不可用。请检查网络和 Android 文字转语音设置后重试。'
+    }
+    if (code === 'not-allowed') return '浏览器阻止了朗读。请再次点击播放，并确认页面声音权限已开启。'
+    return '没有听到声音？请调高媒体音量，并在 Android“文字转语音输出”中安装英文语音数据。'
+  }, [])
+
+  const armStartTimeout = useCallback((token: number, started: () => boolean) => {
+    clearStartTimer()
+    startTimerRef.current = window.setTimeout(() => {
+      startTimerRef.current = null
+      if (token !== tokenRef.current || started()) return
+      tokenRef.current += 1
+      window.speechSynthesis.cancel()
+      setStatus('idle')
+      setError(speechErrorMessage())
+    }, SPEECH_START_TIMEOUT_MS)
+  }, [clearStartTimer, speechErrorMessage])
+
   const stop = useCallback(() => {
     tokenRef.current += 1
+    clearStartTimer()
     window.speechSynthesis.cancel()
     setStatus('idle')
-  }, [])
+  }, [clearStartTimer])
 
   const speakAt = useCallback((target: number) => {
     const options = optionsRef.current
@@ -50,21 +84,37 @@ export function useSpeechReader({ sentences, currentIndex, rate, voiceURI, repea
     const token = tokenRef.current
     window.speechSynthesis.cancel()
     options.onIndexChange(target)
-    setStatus('speaking')
+    setError('')
+    setStatus('starting')
 
     const utterance = new SpeechSynthesisUtterance(options.sentences[target])
     utterance.lang = 'en-US'
     utterance.rate = options.rate
-    const voice = window.speechSynthesis.getVoices().find((candidate) => candidate.voiceURI === options.voiceURI)
+    const availableVoices = window.speechSynthesis.getVoices()
+    const englishVoices = availableVoices.filter((candidate) => candidate.lang.toLowerCase().startsWith('en'))
+    const voice = availableVoices.find((candidate) => candidate.voiceURI === options.voiceURI)
+      ?? englishVoices.find((candidate) => candidate.default)
+      ?? englishVoices.find((candidate) => candidate.lang.toLowerCase() === 'en-us')
+      ?? englishVoices[0]
     if (voice) utterance.voice = voice
-    utterance.onstart = () => token === tokenRef.current && setStatus('speaking')
+    let started = false
+    utterance.onstart = () => {
+      if (token !== tokenRef.current) return
+      started = true
+      clearStartTimer()
+      setStatus('speaking')
+    }
     utterance.onpause = () => token === tokenRef.current && setStatus('paused')
     utterance.onresume = () => token === tokenRef.current && setStatus('speaking')
     utterance.onerror = (event) => {
-      if (token === tokenRef.current && event.error !== 'canceled' && event.error !== 'interrupted') setStatus('idle')
+      if (token !== tokenRef.current || event.error === 'canceled' || event.error === 'interrupted') return
+      clearStartTimer()
+      setStatus('idle')
+      setError(speechErrorMessage(event.error))
     }
     utterance.onend = () => {
       if (token !== tokenRef.current) return
+      clearStartTimer()
       const latest = optionsRef.current
       if (latest.repeat) {
         speakAt(target)
@@ -74,12 +124,15 @@ export function useSpeechReader({ sentences, currentIndex, rate, voiceURI, repea
         setStatus('idle')
       }
     }
+    armStartTimeout(token, () => started)
     window.speechSynthesis.speak(utterance)
-  }, [stop])
+  }, [armStartTimeout, clearStartTimer, speechErrorMessage, stop])
 
   const toggle = useCallback(() => {
     if (!sentences.length) return
-    if (status === 'speaking') {
+    if (status === 'starting') {
+      stop()
+    } else if (status === 'speaking') {
       window.speechSynthesis.pause()
       setStatus('paused')
     } else if (status === 'paused' && window.speechSynthesis.paused) {
@@ -99,15 +152,41 @@ export function useSpeechReader({ sentences, currentIndex, rate, voiceURI, repea
 
   const speakWord = useCallback((word: string) => {
     tokenRef.current += 1
+    const token = tokenRef.current
+    clearStartTimer()
     window.speechSynthesis.cancel()
-    setStatus('paused')
+    setError('')
+    setStatus('starting')
     const utterance = new SpeechSynthesisUtterance(word)
     utterance.lang = 'en-US'
     utterance.rate = 0.9
-    const selected = window.speechSynthesis.getVoices().find((voice) => voice.voiceURI === optionsRef.current.voiceURI)
+    const availableVoices = window.speechSynthesis.getVoices()
+    const englishVoices = availableVoices.filter((voice) => voice.lang.toLowerCase().startsWith('en'))
+    const selected = availableVoices.find((voice) => voice.voiceURI === optionsRef.current.voiceURI)
+      ?? englishVoices.find((voice) => voice.default)
+      ?? englishVoices[0]
     if (selected) utterance.voice = selected
+    let started = false
+    utterance.onstart = () => {
+      if (token !== tokenRef.current) return
+      started = true
+      clearStartTimer()
+      setStatus('speaking')
+    }
+    utterance.onend = () => {
+      if (token !== tokenRef.current) return
+      clearStartTimer()
+      setStatus('paused')
+    }
+    utterance.onerror = (event) => {
+      if (token !== tokenRef.current || event.error === 'canceled' || event.error === 'interrupted') return
+      clearStartTimer()
+      setStatus('paused')
+      setError(speechErrorMessage(event.error))
+    }
+    armStartTimeout(token, () => started)
     window.speechSynthesis.speak(utterance)
-  }, [])
+  }, [armStartTimeout, clearStartTimer, speechErrorMessage])
 
   useEffect(() => {
     const onVisibility = () => {
@@ -122,5 +201,5 @@ export function useSpeechReader({ sentences, currentIndex, rate, voiceURI, repea
 
   useEffect(() => stop, [stop])
 
-  return { status, voices, speakAt, toggle, stop, previous, next, restartCurrent, speakWord }
+  return { status, voices, error, clearError: () => setError(''), speakAt, toggle, stop, previous, next, restartCurrent, speakWord }
 }

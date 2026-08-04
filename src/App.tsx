@@ -438,8 +438,15 @@ function Reader({ project, onEdit, onChange }: { project: ReadingProject; onEdit
       </aside>
 
       <div className="player-bar">
+        {speech.error && <div className="speech-error" role="alert"><span>{speech.error}</span><button onClick={speech.clearError} aria-label="关闭朗读提示"><X size={15} /></button></div>}
         <button className="player-icon" onClick={speech.previous} aria-label="上一句"><ChevronLeft size={25} /></button>
-        <button className="play-button" onClick={speech.toggle} aria-label={speech.status === 'speaking' ? '暂停' : '播放'}>{speech.status === 'speaking' ? <Pause size={27} /> : <Play size={27} fill="currentColor" />}</button>
+        <button
+          className="play-button"
+          onClick={speech.toggle}
+          aria-label={speech.status === 'starting' ? '取消语音启动' : speech.status === 'speaking' ? '暂停' : '播放'}
+        >
+          {speech.status === 'starting' ? <RefreshCw className="spin" size={25} /> : speech.status === 'speaking' ? <Pause size={27} /> : <Play size={27} fill="currentColor" />}
+        </button>
         <button className="player-icon" onClick={speech.next} aria-label="下一句"><ChevronRight size={25} /></button>
         <button className={`repeat-button ${project.repeatSentence ? 'is-active' : ''}`} onClick={() => void onChange({ ...project, repeatSentence: !project.repeatSentence })}><RefreshCw size={18} />单句</button>
         <div className="rate-switch" aria-label="语速">
@@ -449,7 +456,7 @@ function Reader({ project, onEdit, onChange }: { project: ReadingProject; onEdit
           <option value="">设备默认英文声音</option>
           {speech.voices.map((voice) => <option key={voice.voiceURI} value={voice.voiceURI}>{voice.name} · {voice.lang}</option>)}
         </select>
-        {speech.status === 'paused' && <button className="restart-link" onClick={speech.restartCurrent}>没声音？从句首重播</button>}
+        {speech.status === 'paused' && !speech.error && <button className="restart-link" onClick={speech.restartCurrent}>没声音？从句首重播</button>}
       </div>
     </main>
   )

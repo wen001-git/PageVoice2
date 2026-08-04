@@ -179,6 +179,8 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 .rate-switch button.is-active { background: var(--paper); color: var(--blue); box-shadow: 0 2px 8px rgba(38,51,43,.1); font-weight: 800; }
 .voice-select { max-width: 185px; height: 37px; padding: 0 29px 0 10px; border: 1px solid var(--border); border-radius: 10px; background: var(--paper); font-size: .7rem; }
 .restart-link { position: absolute; right: 20px; top: -29px; padding: 5px 10px; background: var(--yellow); color: var(--ink); font-size: .7rem; }
+.speech-error { position: absolute; left: 12px; right: 12px; bottom: calc(100% + 8px); display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 10px 12px; border-radius: 12px; background: #7d302a; color: var(--paper); box-shadow: var(--shadow); font-size: .76rem; line-height: 1.45; }
+.speech-error button { flex: 0 0 auto; width: 28px; height: 28px; display: grid; place-items: center; border-radius: 8px; background: rgba(255,255,255,.14); color: inherit; cursor: pointer; }
 
 .settings-view { max-width: 900px; }
 .settings-card { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 18px; align-items: center; margin-bottom: 16px; padding: clamp(20px, 4vw, 30px); border-radius: 18px 18px 18px 6px; background: var(--paper); box-shadow: 0 4px 20px rgba(45,62,51,.05); }
