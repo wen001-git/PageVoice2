@@ -2,8 +2,8 @@ import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import { VitePWA } from 'vite-plugin-pwa'
 
-export default defineConfig(({ mode }) => ({
-  base: mode === 'production' ? '/PageVoice2/' : '/',
+export default defineConfig(() => ({
+  base: '/',
   plugins: [
     react(),
     VitePWA({

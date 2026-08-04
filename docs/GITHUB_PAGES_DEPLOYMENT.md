@@ -56,13 +56,13 @@ Folder: /(root)
 
 ## 4. 访问网站
 
-部署成功后访问：
+部署成功后访问自定义域名：
 
 ```text
-https://wen001-git.github.io/PageVoice2/
+https://pagevoice2.leewen.work/
 ```
 
-GitHub Pages 项目网站包含 `/PageVoice2/` 子路径，不能省略。部署刚完成时，网站可能需要短暂等待后才能访问。
+自定义域名从网站根路径提供 PageVoice2，因此 Vite 的生产环境 `base` 必须保持为 `/`。GitHub Pages 会把原项目地址重定向到自定义域名。部署刚完成时，网站可能需要短暂等待后才能访问。
 
 ## 5. 后续发布
 
@@ -106,7 +106,7 @@ npm run preview
 
 ### 部署成功但页面空白
 
-检查访问地址是否包含 `/PageVoice2/`，并确认 `vite.config.ts` 的生产环境 `base` 与仓库名一致。
+检查 `vite.config.ts` 的生产环境 `base` 是否为 `/`。如果构建结果仍引用 `/PageVoice2/assets/`，JavaScript 和 CSS 会在自定义域名下返回 404，页面将无法启动。
 
 ### 页面显示旧版本
 
@@ -119,7 +119,7 @@ npm run preview
 ## 8. 相关文件
 
 - `.github/workflows/deploy-pages.yml`：GitHub Actions 构建与部署流程。
-- `vite.config.ts`：GitHub Pages 子路径和 Vite 构建配置。
+- `vite.config.ts`：自定义域名根路径和 Vite 构建配置。
 - `AGENTS.md`：项目当前状态、运行方式和后续任务。
 - `docs/PROJECT_PLAN.md`：完整功能范围、里程碑和验收条件。
 
@@ -127,4 +127,5 @@ npm run preview
 
 | 日期 | 变更内容 |
 |------|----------|
+| 2026-08-04 | 将正式访问地址改为 `pagevoice2.leewen.work` 并说明 Vite 根路径要求；why：自定义域名从 `/` 提供资源，继续使用 `/PageVoice2/` 会导致 JS/CSS 404 和空白页 |
 | 2026-08-04 | 初始创建 GitHub Pages 部署指南，记录 Actions 发布源、首次部署、日常更新和故障排查方法；why：避免把 Vite 源码目录误设为 Pages 发布目录，并方便跨工具复用部署流程 |
