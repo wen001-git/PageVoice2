@@ -3,6 +3,7 @@ import * as tencentcloudModule from 'tencentcloud-sdk-nodejs-ocr'
 
 const MAX_REQUEST_BYTES = 5 * 1024 * 1024
 const MAX_BASE64_LENGTH = 4_500_000
+const PRODUCTION_ORIGINS = new Set(['https://pagevoice3.leewen.work'])
 
 function json(body, status = 200) {
   return new Response(JSON.stringify(body), {
@@ -32,7 +33,7 @@ function firstForwardedValue(value) {
   return value?.split(',')[0]?.trim() ?? ''
 }
 
-function isSameOriginRequest(request) {
+function isSameOriginRequest(request, env) {
   const rawOrigin = request.headers.get('Origin')
   if (!rawOrigin) return false
 
@@ -42,6 +43,12 @@ function isSameOriginRequest(request) {
   } catch {
     return false
   }
+
+  const configuredOrigins = String(env.PAGEVOICE_OCR_ORIGINS ?? '')
+    .split(',')
+    .map((value) => value.trim())
+    .filter(Boolean)
+  if (PRODUCTION_ORIGINS.has(origin.origin) || configuredOrigins.includes(origin.origin)) return true
 
   const requestUrl = new URL(request.url)
   if (origin.origin === requestUrl.origin) return true
@@ -103,7 +110,7 @@ export function createOcrHandler(clientFactory = createClient) {
     const { request, env = {} } = context
     if (request.method !== 'POST') return json({ code: 'METHOD_NOT_ALLOWED', message: '只支持 POST 请求。' }, 405)
 
-    if (!isSameOriginRequest(request)) {
+    if (!isSameOriginRequest(request, env)) {
       return json({ code: 'FORBIDDEN_ORIGIN', message: '只允许从 PageVoice2 页面调用。' }, 403)
     }
 

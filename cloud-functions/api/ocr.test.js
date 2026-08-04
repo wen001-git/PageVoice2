@@ -70,6 +70,18 @@ describe('Tencent OCR cloud handler', () => {
     expect(GeneralAccurateOCR).toHaveBeenCalledOnce()
   })
 
+  it('accepts the production origin when EdgeOne hides proxy host headers', async () => {
+    const GeneralAccurateOCR = vi.fn().mockResolvedValue({ RequestId: 'production', TextDetections: [] })
+    const handler = createOcrHandler(() => ({ GeneralAccurateOCR }))
+    const result = await read(await handler(context(
+      { imageBase64: validImage, pin: 'family123' },
+      { requestUrl: 'https://internal.edgeone/api/ocr', origin: 'https://pagevoice3.leewen.work' },
+    )))
+
+    expect(result.status).toBe(200)
+    expect(GeneralAccurateOCR).toHaveBeenCalledOnce()
+  })
+
   it('rejects missing configuration', async () => {
     const result = await read(await createOcrHandler()(context({ imageBase64: validImage, pin: 'family123' }, { env: {} })))
     expect(result.status).toBe(503)
