@@ -58,8 +58,6 @@ export async function prepareOfflineResources(onProgress: (done: number, total: 
   const index = (await indexResponse.json()) as DictionaryIndex
   const dictionaryUrls = ['index.json', ...index.files].map((file) => `${base}dictionary/${file}`)
   const coreFiles = [
-    'tesseract-core.wasm.js',
-    'tesseract-core-simd.wasm.js',
     'tesseract-core-lstm.wasm.js',
     'tesseract-core-simd-lstm.wasm.js',
   ].map((file) => `${base}tesseract-core/${file}`)
@@ -86,6 +84,7 @@ export async function prepareOfflineResources(onProgress: (done: number, total: 
     await Promise.all(runners)
   }
 
-  await cacheUrls('pagevoice-ocr-v1', ocrUrls)
+  await caches.delete('pagevoice-ocr-v1')
+  await cacheUrls('pagevoice-ocr-v2', ocrUrls)
   await cacheUrls('pagevoice-dictionary-v1', dictionaryUrls)
 }

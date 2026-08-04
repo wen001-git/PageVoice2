@@ -34,7 +34,7 @@ export default defineConfig(({ mode }) => ({
             urlPattern: ({ url }) => url.pathname.includes('/tessdata/') || url.pathname.includes('/tesseract-core/'),
             handler: 'CacheFirst',
             options: {
-              cacheName: 'pagevoice-ocr-v1',
+              cacheName: 'pagevoice-ocr-v2',
               expiration: { maxEntries: 16, maxAgeSeconds: 60 * 60 * 24 * 365 }
             }
           },

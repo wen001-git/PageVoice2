@@ -23,6 +23,7 @@ import {
   X,
 } from 'lucide-react'
 import { useRegisterSW } from 'virtual:pwa-register/react'
+import { NoticeStack, type NoticeMessage, type NoticeTone } from './components/NoticeStack'
 import { useSpeechReader } from './hooks/useSpeechReader'
 import { createProject, listProjects, removeProject, saveProject } from './lib/db'
 import { lookupWord, prepareOfflineResources } from './lib/dictionary'
@@ -36,17 +37,38 @@ const OCR_STATUS: Record<string, string> = {
   'initializing tesseract': '正在初始化识别引擎',
   'loading language traineddata': '正在加载英文模型',
   'initializing api': '正在准备英文识别',
+  'reusing initialized worker': 'OCR 引擎已就绪',
   'recognizing text': '正在识别书页文字',
+}
+
+const OCR_HINT: Record<string, string> = {
+  'loading tesseract core': '首次使用需下载约 6 MB，完成后会保存在这台设备。',
+  'loading language traineddata': '首次使用需下载约 6 MB，完成后会保存在这台设备。',
+  'initializing tesseract': '正在设备中启动本地识别引擎。',
+  'initializing api': '正在设备中准备英文识别。',
+  'reusing initialized worker': '已复用本次打开期间加载的模型。',
+  'recognizing text': '所有文字识别都在这台设备中完成。',
 }
 
 export function App() {
   const [view, setView] = useState<AppView>('library')
   const [projects, setProjects] = useState<ReadingProject[]>([])
   const [project, setProject] = useState<ReadingProject | null>(null)
-  const [notice, setNotice] = useState('')
+  const [notice, setNotice] = useState<NoticeMessage | null>(null)
+  const noticeId = useRef(0)
   const [persistent, setPersistent] = useState<boolean | null>(null)
   const [storage, setStorage] = useState<{ usage: number; quota: number } | null>(null)
-  const { needRefresh: [needRefresh], offlineReady: [offlineReady], updateServiceWorker } = useRegisterSW()
+  const {
+    needRefresh: [needRefresh],
+    offlineReady: [offlineReady, setOfflineReady],
+    updateServiceWorker,
+  } = useRegisterSW()
+
+  const showNotice = useCallback((message: string, tone: NoticeTone = 'info') => {
+    noticeId.current += 1
+    setNotice({ id: noticeId.current, message, tone })
+  }, [])
+  const dismissNotice = useCallback(() => setNotice(null), [])
 
   const refreshProjects = useCallback(async () => setProjects(await listProjects()), [])
 
@@ -57,6 +79,12 @@ export function App() {
       void navigator.storage.estimate?.().then(({ usage = 0, quota = 0 }) => setStorage({ usage, quota }))
     }
   }, [refreshProjects])
+
+  useEffect(() => {
+    if (!offlineReady) return
+    showNotice('应用外壳已可离线使用。', 'success')
+    setOfflineReady(false)
+  }, [offlineReady, setOfflineReady, showNotice])
 
   const navigate = useCallback((next: AppView) => {
     window.location.hash = next
@@ -96,11 +124,12 @@ export function App() {
         </div>
       </header>
 
-      {notice && <div className="notice" role="status">{notice}<button onClick={() => setNotice('')} aria-label="关闭提示"><X size={16} /></button></div>}
-      {offlineReady && <div className="notice notice--success">应用外壳已可离线使用。</div>}
-      {needRefresh && (
-        <div className="notice notice--update">发现新版本。<button onClick={() => void updateServiceWorker(true)}>刷新更新</button></div>
-      )}
+      <NoticeStack
+        notice={notice}
+        needRefresh={needRefresh}
+        onDismiss={dismissNotice}
+        onUpdate={() => void updateServiceWorker(true)}
+      />
 
       {view === 'library' && (
         <Library
@@ -158,12 +187,19 @@ export function App() {
           storage={storage}
           onBack={() => project ? navigate('reader') : navigate('library')}
           onPersistence={async () => {
-            if (!navigator.storage?.persist) return setNotice('当前浏览器不支持请求持久存储。')
-            const granted = await navigator.storage.persist()
-            setPersistent(granted)
-            setNotice(granted ? '本地项目已获得持久存储保护。' : '浏览器暂未授予持久存储；请定期打开应用。')
+            if (!navigator.storage?.persist) return showNotice('当前浏览器不支持请求持久存储。', 'warning')
+            try {
+              const granted = await navigator.storage.persist()
+              setPersistent(granted)
+              showNotice(
+                granted ? '本地项目已获得持久存储保护。' : '浏览器暂未授予持久存储；请定期打开应用。',
+                granted ? 'success' : 'warning',
+              )
+            } catch (error) {
+              showNotice(error instanceof Error ? error.message : '持久存储申请失败。', 'error')
+            }
           }}
-          onNotice={setNotice}
+          onNotice={showNotice}
         />
       )}
     </div>
@@ -302,7 +338,7 @@ function Capture({ project, onBack, onPaste, onRecognized }: { project: ReadingP
           {scanning ? (
             <div className="ocr-progress" role="status">
               <div className="progress-ring"><span>{Math.round((progress?.progress ?? 0) * 100)}%</span></div>
-              <div><strong>{OCR_STATUS[progress?.status ?? ''] ?? '正在本地识别'}</strong><p>所有处理都在这台设备中完成。</p></div>
+              <div><strong>{OCR_STATUS[progress?.status ?? ''] ?? '正在本地识别'}</strong><p>{OCR_HINT[progress?.status ?? ''] ?? '所有处理都在这台设备中完成。'}</p></div>
               <button className="secondary-button" onClick={() => { cancelledRef.current = true; void cancelRecognition(); setScanning(false) }}><CircleStop size={18} />取消</button>
             </div>
           ) : <button className="primary-button primary-button--wide" onClick={() => void recognize()}><Sparkles size={19} />开始本地识别</button>}
@@ -424,7 +460,7 @@ function SettingsView({ persistent, storage, onBack, onPersistence, onNotice }: 
   storage: { usage: number; quota: number } | null
   onBack: () => void
   onPersistence: () => void
-  onNotice: (message: string) => void
+  onNotice: (message: string, tone?: NoticeTone) => void
 }) {
   const [offlineProgress, setOfflineProgress] = useState<number | null>(null)
   const storageLabel = useMemo(() => storage ? `${(storage.usage / 1024 / 1024).toFixed(1)} MB / ${(storage.quota / 1024 / 1024 / 1024).toFixed(1)} GB` : '浏览器未提供容量信息', [storage])
@@ -434,13 +470,13 @@ function SettingsView({ persistent, storage, onBack, onPersistence, onNotice }: 
       <div className="page-title"><span className="step-badge"><Settings size={20} /></span><div><h1>让阅读更安心</h1><p>准备离线资源，并了解这台设备上的保存状态。</p></div></div>
       <section className="settings-card">
         <div className="settings-icon"><Download size={24} /></div>
-        <div><h2>离线阅读包</h2><p>下载英文 OCR 模型和 5 万词核心词典。首次准备约需 35 MB，之后断网也能使用。</p>{offlineProgress !== null && <div className="progress-track"><span style={{ width: `${offlineProgress}%` }} /></div>}</div>
+        <div><h2>离线阅读包</h2><p>下载快速英文 OCR 模型和 5 万词核心词典。首次准备约需 20 MB，之后断网也能使用。</p>{offlineProgress !== null && <div className="progress-track"><span style={{ width: `${offlineProgress}%` }} /></div>}</div>
         <button className="primary-button" disabled={offlineProgress !== null && offlineProgress < 100} onClick={async () => {
           setOfflineProgress(0)
           try {
             await prepareOfflineResources((done, total) => setOfflineProgress(Math.round((done / total) * 100)))
-            setOfflineProgress(100); onNotice('离线 OCR 和核心词典已准备完成。')
-          } catch (error) { setOfflineProgress(null); onNotice(error instanceof Error ? error.message : '离线资源准备失败。') }
+            setOfflineProgress(100); onNotice('离线 OCR 和核心词典已准备完成。', 'success')
+          } catch (error) { setOfflineProgress(null); onNotice(error instanceof Error ? error.message : '离线资源准备失败。', 'error') }
         }}>{offlineProgress === 100 ? '已准备' : offlineProgress !== null ? `${offlineProgress}%` : '准备离线资源'}</button>
       </section>
       <section className="settings-card">

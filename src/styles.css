@@ -45,10 +45,18 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 .icon-button:hover { background: rgba(53, 104, 89, .09); }
 .icon-button--small { width: 34px; height: 34px; }
 
-.notice { position: fixed; z-index: 140; top: calc(72px + env(safe-area-inset-top)); left: 50%; transform: translateX(-50%); max-width: min(90vw, 680px); padding: 12px 16px; display: flex; gap: 12px; align-items: center; justify-content: space-between; border-radius: 12px; background: var(--ink); color: var(--paper); box-shadow: var(--shadow); font-size: .86rem; }
+.notice-stack { position: fixed; z-index: 140; top: calc(72px + env(safe-area-inset-top)); left: 50%; width: min(90vw, 680px); transform: translateX(-50%); display: flex; flex-direction: column; gap: 8px; pointer-events: none; }
+.notice { width: fit-content; max-width: 100%; align-self: center; padding: 12px 16px; display: flex; gap: 12px; align-items: center; justify-content: space-between; border-radius: 12px; background: var(--ink); color: var(--paper); box-shadow: var(--shadow); font-size: .86rem; pointer-events: auto; animation: notice-in 180ms ease-out both; }
 .notice button { padding: 4px 8px; border-radius: 8px; color: inherit; background: rgba(255,255,255,.12); cursor: pointer; }
 .notice--success { background: var(--blue); }
+.notice--info { background: var(--ink); }
+.notice--warning { background: #695b2f; }
+.notice--error { background: #7d302a; }
 .notice--update { background: #695b2f; }
+.notice.is-closing { animation: notice-out 180ms ease-in both; }
+@keyframes notice-in { from { opacity: 0; transform: translateY(-8px); } to { opacity: 1; transform: translateY(0); } }
+@keyframes notice-out { from { opacity: 1; transform: translateY(0); } to { opacity: 0; transform: translateY(-8px); } }
+@media (prefers-reduced-motion: reduce) { .notice, .notice.is-closing { animation: none; } }
 
 .app-content { width: 100%; max-width: 920px; margin: 0 auto; padding: clamp(28px, 5vw, 58px) clamp(16px, 4vw, 36px) 110px; }
 .app-content--wide { max-width: 1180px; }
