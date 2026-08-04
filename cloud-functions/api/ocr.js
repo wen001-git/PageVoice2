@@ -28,6 +28,37 @@ function isBase64Image(value) {
     && /^[A-Za-z0-9+/]+={0,2}$/.test(value)
 }
 
+function firstForwardedValue(value) {
+  return value?.split(',')[0]?.trim() ?? ''
+}
+
+function isSameOriginRequest(request) {
+  const rawOrigin = request.headers.get('Origin')
+  if (!rawOrigin) return false
+
+  let origin
+  try {
+    origin = new URL(rawOrigin)
+  } catch {
+    return false
+  }
+
+  const requestUrl = new URL(request.url)
+  if (origin.origin === requestUrl.origin) return true
+
+  // Cloud Functions run behind EdgeOne's internal proxy, so request.url may
+  // contain an internal host. EdgeOne preserves the public host in the
+  // forwarded/Host headers; compare against those instead.
+  const publicHost = firstForwardedValue(request.headers.get('X-Forwarded-Host'))
+    || firstForwardedValue(request.headers.get('Host'))
+  const publicProtocol = firstForwardedValue(request.headers.get('X-Forwarded-Proto'))
+    || origin.protocol.slice(0, -1)
+
+  return Boolean(publicHost)
+    && origin.host === publicHost
+    && origin.protocol === `${publicProtocol}:`
+}
+
 function publicError(error) {
   const code = typeof error?.code === 'string' ? error.code : ''
   if (/NoEnoughPackage|ResourcePackageRunOut|InArrears|ResourcesSoldOut|Insufficient/i.test(code)) {
@@ -72,8 +103,7 @@ export function createOcrHandler(clientFactory = createClient) {
     const { request, env = {} } = context
     if (request.method !== 'POST') return json({ code: 'METHOD_NOT_ALLOWED', message: '只支持 POST 请求。' }, 405)
 
-    const requestOrigin = request.headers.get('Origin')
-    if (!requestOrigin || requestOrigin !== new URL(request.url).origin) {
+    if (!isSameOriginRequest(request)) {
       return json({ code: 'FORBIDDEN_ORIGIN', message: '只允许从 PageVoice2 页面调用。' }, 403)
     }
 

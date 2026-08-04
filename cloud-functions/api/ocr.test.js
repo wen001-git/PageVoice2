@@ -13,9 +13,12 @@ function context(body, options = {}) {
   const origin = options.origin === undefined ? 'https://pagevoice.test' : options.origin
   const headers = new Headers({ 'Content-Type': 'application/json' })
   if (origin) headers.set('Origin', origin)
+  if (options.host) headers.set('Host', options.host)
+  if (options.forwardedHost) headers.set('X-Forwarded-Host', options.forwardedHost)
+  if (options.forwardedProto) headers.set('X-Forwarded-Proto', options.forwardedProto)
   if (options.contentLength) headers.set('Content-Length', String(options.contentLength))
   return {
-    request: new Request('https://pagevoice.test/api/ocr', {
+    request: new Request(options.requestUrl ?? 'https://pagevoice.test/api/ocr', {
       method: options.method ?? 'POST',
       headers,
       body: (options.method ?? 'POST') === 'GET' ? undefined : JSON.stringify(body),
@@ -48,6 +51,23 @@ describe('Tencent OCR cloud handler', () => {
     expect(result.status).toBe(401)
     expect(result.body.code).toBe('INVALID_PIN')
     expect(GeneralAccurateOCR).not.toHaveBeenCalled()
+  })
+
+  it('accepts the public origin preserved by an EdgeOne proxy', async () => {
+    const GeneralAccurateOCR = vi.fn().mockResolvedValue({ RequestId: 'proxy', TextDetections: [] })
+    const handler = createOcrHandler(() => ({ GeneralAccurateOCR }))
+    const result = await read(await handler(context(
+      { imageBase64: validImage, pin: 'family123' },
+      {
+        requestUrl: 'https://internal.edgeone/api/ocr',
+        origin: 'https://pagevoice3.leewen.work',
+        forwardedHost: 'pagevoice3.leewen.work',
+        forwardedProto: 'https',
+      },
+    )))
+
+    expect(result.status).toBe(200)
+    expect(GeneralAccurateOCR).toHaveBeenCalledOnce()
   })
 
   it('rejects missing configuration', async () => {
