@@ -1,9 +1,8 @@
 import { timingSafeEqual } from 'node:crypto'
-import tencentcloud from 'tencentcloud-sdk-nodejs-ocr'
+import * as tencentcloudModule from 'tencentcloud-sdk-nodejs-ocr'
 
 const MAX_REQUEST_BYTES = 5 * 1024 * 1024
 const MAX_BASE64_LENGTH = 4_500_000
-const OcrClient = tencentcloud.ocr.v20181119.Client
 
 function json(body, status = 200) {
   return new Response(JSON.stringify(body), {
@@ -47,6 +46,17 @@ function publicError(error) {
 }
 
 function createClient(env) {
+  // EdgeOne bundles this CommonJS SDK differently from native Node ESM. In
+  // production the default import can be undefined, while the named `ocr`
+  // export remains available. Resolve both shapes lazily so simple requests
+  // can still return a controlled response even if the SDK shape changes.
+  const ocr = tencentcloudModule.ocr ?? tencentcloudModule.default?.ocr
+  if (!ocr?.v20181119?.Client) {
+    const error = new Error('Tencent OCR SDK failed to load.')
+    error.code = 'OCR_SDK_LOAD_FAILED'
+    throw error
+  }
+  const OcrClient = ocr.v20181119.Client
   return new OcrClient({
     credential: {
       secretId: env.TENCENT_OCR_SECRET_ID,
